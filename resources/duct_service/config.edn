@@ -1,0 +1,83 @@
+{:duct.core/project-ns  duct-service
+ :duct.core/environment :production
+
+ :duct.router/ataraxy {:middleware {:jws-auth #ig/ref :duct.middleware.buddy/authentication}}
+
+ :duct.middleware.buddy/authentication
+ {:backend :jws
+  :secret  #duct/env "JWT_SECRET"}
+
+ :duct.module/logging {}
+ :duct.module.web/api {}
+ :duct.module/sql {}
+
+
+ ;## === routes ===
+ :duct.module/ataraxy
+ {[:get "/"] [:index]
+
+  [:get "/entries"]
+  ^:jws-auth [:entries/list]
+
+  [:get "/entries/" id]
+  ^:jws-auth [:entries/find ^int id]
+
+  [:delete "/entries/" id]
+  ^:jws-auth [:entries/destroy ^int id]
+
+  [:post "/entries" {{:keys [description]} :body-params}]
+  ^:jws-auth [:entries/create description]
+
+  [:post "/users" {{:keys [email password]} :body-params}]
+  [:users/create email password]
+
+  [:post "/users/login" {{:keys [email password]} :body-params}]
+  [:users/login email password]
+ }
+
+
+ ;# === handlers ===
+ [:duct.handler.static/ok :duct-service.handler/index]
+ {:body {:entries "/entries"}}
+
+ ;## --- entries ---
+ [:duct.handler.sql/query :duct-service.handler.entries/list]
+ {:sql ["SELECT * FROM entries"]}
+
+ [:duct.handler.sql/query-one :duct-service.handler.entries/find]
+ {:request {[_ id] :ataraxy/result}
+  :sql ["SELECT * FROM entries WHERE id=?" id]
+  :hrefs {:href "/entries/{id}"}}
+
+ [:duct.handler.sql/execute :duct-service.handler.entries/destroy]
+ {:request {[_ id] :ataraxy/result}
+  :sql ["DELETE FROM entries WHERE id=?" id]}
+
+ [:duct.handler.sql/insert :duct-service.handler.entries/create]
+ {:request {[_ description] :ataraxy/result}
+  :sql ["INSERT INTO entries (description) values (?)" description]
+  :location "/entries/{last_insert_rowid}"}
+
+ ;## --- users ---
+ :duct-service.handler.users/create
+ {:db #ig/ref :duct.database/sql
+  :jwt-secret #duct/env "JWT_SECRET"}
+
+ :duct-service.handler.users/login
+ {:db #ig/ref :duct.database/sql
+  :jwt-secret #duct/env "JWT_SECRET"}
+
+
+ ;# === migrations ===
+ :duct.migrator/ragtime
+ {:migrations [#ig/ref :duct-service.migration/create-entries
+               #ig/ref :duct-service.migration/create-users]}
+
+ [:duct.migrator.ragtime/sql :duct-service.migration/create-entries]
+ {:up ["CREATE TABLE entries (id INTEGER PRIMARY KEY, description TEXT)"]
+  :down ["DROP TABLE entries"]}
+
+ [:duct.migrator.ragtime/sql :duct-service.migration/create-users]
+ {:up ["CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, password TEXT)"]
+  :down ["DROP TABLE users"]}
+}
